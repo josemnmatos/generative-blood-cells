@@ -240,6 +240,12 @@ class UNet(nn.Module):
         # initialization
         self.apply(self._init_weights)
 
+    # Method to initialize weights
+    # This method initializes the weights of the model using Kaiming normal initialization for Conv2d layers
+    # and normal initialization for Linear layers, with biases set to zero.
+    #
+    # **Method proposed by Claude Sonnet 3.7.**
+    #
     def _init_weights(self, module):
         if isinstance(module, nn.Conv2d):
             nn.init.kaiming_normal_(
