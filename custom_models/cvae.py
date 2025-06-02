@@ -140,6 +140,10 @@ class VAELoss(nn.Module):
         flattened_recon = recon_x.view(batch_size, -1)
         flattened_x = x.view(batch_size, -1)
 
+        assert flattened_recon.shape == flattened_x.shape, f"Shape mismatch: {flattened_recon.shape} vs {flattened_x.shape}"
+        assert torch.all(flattened_recon >= 0) and torch.all(
+            flattened_recon <= 1), "recon_x values out of [0, 1] range"
+
         # Calculate binary cross entropy
         BCE = nn.functional.binary_cross_entropy(
             flattened_recon, flattened_x, reduction='sum'

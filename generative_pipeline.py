@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, RandomSampler, ConcatDataset
 import copy
-from custom_models.vae import VariationalAutoencoder, Encoder, Decoder
+from custom_models.cvae import CVAE, VAELoss
 import matplotlib.pyplot as plt
 from torchvision import transforms
 from torchvision.utils import make_grid
@@ -18,7 +18,7 @@ import pytorch_fid_wrapper as pfw
 
 EVAL_SEEDS = [1001, 2002, 3003, 4004, 5005]
 
-ALLOWED_MODEL_CLASSES = [VariationalAutoencoder.__name__]
+ALLOWED_MODEL_CLASSES = [CVAE.__name__]
 
 N_EVAL_SAMPLES = 10000
 
@@ -98,28 +98,9 @@ class CustomGenerativePipeline:
         for X_batch, _ in self.train_dataloader:
             X_batch = X_batch.to(self.device)
 
-            if isinstance(self.model, VariationalAutoencoder):
-                X_batch = X_batch.flatten(start_dim=1)
-
-            outputs = self.model(X_batch)
-
-            # Handle VAE outputs specifically
-            if isinstance(self.model, VariationalAutoencoder):
-                # Unpack the tuple
-                recon_x, mu, logvar = outputs
-
-                # Calculate reconstruction loss
-                recon_loss = self.criterion(recon_x, X_batch)
-
-                # Calculate KL divergence loss
-                kl_loss = -0.5 * \
-                    torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-
-                # Total loss (reconstruction loss + KL divergence)
-                loss = recon_loss + kl_loss
-            else:
-                # For other models
-                loss = self.criterion(outputs, X_batch)
+            # Unpack model output for CVAE: (recon_x, mu, logvar)
+            recon_x, mu, logvar = self.model(X_batch)
+            loss, _, _ = self.criterion(recon_x, X_batch, mu, logvar)
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -163,9 +144,6 @@ class CustomGenerativePipeline:
             # for image_batch, _ in eval_dataloader:
 
             # 3. Generate N synthetic samples using the model
-
-            assert isinstance(
-                self.model, VariationalAutoencoder), "Invalid model."
 
             synthetic_samples = self.model.generate_synthetic_samples(
                 n_to_generate=N_EVAL_SAMPLES,
@@ -225,15 +203,9 @@ class CustomGenerativePipeline:
         self.model.eval()
         with torch.no_grad():
             # Flatten if using VAE
-            if isinstance(self.model, VariationalAutoencoder):
-                flattened_samples = original_samples.flatten(start_dim=1)
-                reconstructed_output = self.model(flattened_samples)
-                # VAE returns (recon_x, mu, logvar)
-                reconstructed_samples = reconstructed_output[0].view(
-                    n_samples, 3, 28, 28)
-            else:
-                # For other model types
-                reconstructed_samples = self.model(original_samples)
+
+            # For other model types
+            reconstructed_samples = self.model(original_samples)[0]
 
         # Generate synthetic samples
         synthetic_samples = self.model.generate_synthetic_samples(
