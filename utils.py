@@ -35,7 +35,7 @@ def load_medMNIST_data() -> tuple:
     # preprocessing -> normalization to [-1,1] range
     data_transform = transforms.Compose([
         transforms.ToTensor(),
-        # transforms.Normalize(mean=[0.5], std=[0.5]),
+        transforms.Normalize(mean=[0.5], std=[0.5]),
     ])
 
     # Load all splits

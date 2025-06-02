@@ -108,23 +108,13 @@ class CVAE(nn.Module):
             # Generate samples using the decoder
             samples = self.decoder(z_batch)
 
-            # Reshape the flattened samples back to image format (if needed)
-            # Assuming 3 channels and 28x28 image dimensions based on your dataset
+            # Reshape the flattened samples back
             channels, dim_1, dim_2 = 3, 28, 28
             reshaped_samples = samples.view(-1, channels, dim_1, dim_2)
 
             synthetic_samples.append(reshaped_samples.cpu())
 
-        # Concatenate all batches
         synthetic_samples = torch.cat(synthetic_samples, dim=0)
-
-        data_transform = transforms.Compose([
-            # transforms.ToTensor(),
-        ])
-
-        # apply transform to samples
-
-        synthetic_samples = data_transform(synthetic_samples)
 
         return synthetic_samples
 

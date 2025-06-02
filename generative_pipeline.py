@@ -16,7 +16,7 @@ from PIL import Image
 import pytorch_fid_wrapper as pfw
 
 
-EVAL_SEEDS = [1001, 2002, 3003, 4004, 5005]
+EVAL_SEEDS = [100, 200, 300, 400, 500]
 
 ALLOWED_MODEL_CLASSES = [CVAE.__name__]
 
@@ -50,7 +50,6 @@ class CustomGenerativePipeline:
         print(f"Using device: {self.device}")
 
     def __init_pipeline(self):
-        # Create a fresh copy of the model to avoid state carry-over if class reused
         self.model = copy.deepcopy(self.model)
         self.model.to(self.device)
 
@@ -119,7 +118,6 @@ class CustomGenerativePipeline:
 
         self.model.eval()
 
-        # For each seed in EVAL_SEEDS:
 
         fids = []
 
@@ -141,7 +139,6 @@ class CustomGenerativePipeline:
             eval_tensor = torch.cat(
                 [batch[0] for batch in eval_dataloader], dim=0)
 
-            # for image_batch, _ in eval_dataloader:
 
             # 3. Generate N synthetic samples using the model
 
@@ -199,12 +196,8 @@ class CustomGenerativePipeline:
         images, _ = next(dataiter)
         original_samples = images[:n_samples].to(self.device)
 
-        # Get reconstructed samples
         self.model.eval()
         with torch.no_grad():
-            # Flatten if using VAE
-
-            # For other model types
             reconstructed_samples = self.model(original_samples)[0]
 
         # Generate synthetic samples

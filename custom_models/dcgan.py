@@ -1,7 +1,5 @@
 import torch
 import torch.nn as nn
-
-
 import torch.nn.functional as F
 
 
@@ -39,28 +37,24 @@ class DCGANDiscriminator(nn.Module):
     def __init__(self, inputChannels=3):
         super(DCGANDiscriminator, self).__init__()
         self.main = nn.Sequential(
-            # Input: 3 x 28 x 28
             nn.Conv2d(inputChannels, 32, 4, 2, 1,
-                      bias=False),   # -> 32 x 14 x 14
+                      bias=False),
             nn.LeakyReLU(0.2, inplace=True),
 
-            # -> 64 x 7 x 7
             nn.Conv2d(32, 64, 4, 2, 1, bias=False),
             nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2, inplace=True),
 
-            # -> 128 x 4 x 4
             nn.Conv2d(64, 128, 4, 2, 1, bias=False),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
 
-            # -> 256 x 2 x 2
             nn.Conv2d(128, 256, 3, 1, 0, bias=False),
             nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
 
-            nn.Conv2d(256, 1, 1, 1, 0, bias=False),              # -> 1 x 1 x 1
-            # nn.Sigmoid()  # Optional: use for non-WGAN variants
+            nn.Conv2d(256, 1, 1, 1, 0, bias=False),
+            # nn.Sigmoid()  # removed to allow for BCEWithLogitsLoss
         )
 
     def forward(self, input):

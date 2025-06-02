@@ -42,8 +42,6 @@ class MyDDPM(nn.Module):
         # The network returns its estimation of the noise that was added.
         return self.network(x, t)
 
-    # Update your generate_synthetic_samples method
-
     def generate_synthetic_samples(self, n_to_generate=10000, batch_size=128, n_steps=50, device=None):
         """Fast generation for evaluation"""
         self.eval()
@@ -61,10 +59,11 @@ class MyDDPM(nn.Module):
                 batch_size, n_to_generate - len(samples) * batch_size)
 
             with torch.no_grad():
-                batch_samples = generate_new_images_fast(
+                batch_samples = generate_new_images(
                     self,
                     n_samples=current_batch_size,
                     n_steps=n_steps,  # Much faster!
+                    option=1,
                     device=device,
                     c=self.image_chw[0],
                     h=self.image_chw[1],
@@ -78,40 +77,6 @@ class MyDDPM(nn.Module):
                     f"Generated {(batch_idx + 1) * batch_size} / {n_to_generate} samples")
 
         return torch.cat(samples, dim=0)[:n_to_generate]
-
-
-def generate_new_images_fast(ddpm, n_samples=16, n_steps=50, device=None, c=3, h=28, w=28):
-    """Fast generation using fewer steps"""
-    with torch.no_grad():
-        if device is None:
-            device = ddpm.device
-
-        x = torch.randn(n_samples, c, h, w).to(device)
-
-        # Use only every 20th step (1000/50 = 20)
-        step_indices = torch.linspace(0, ddpm.n_steps-1, n_steps).int()
-
-        print(f"Using steps: {step_indices.tolist()}")
-
-        for i, t in enumerate(reversed(step_indices)):
-            time_tensor = torch.ones(n_samples).to(device).long() * t
-            eta_theta = ddpm.backward(x, time_tensor)
-
-            alpha_t = ddpm.alphas[t]
-            alpha_t_bar = ddpm.alpha_bars[t]
-
-            x = (1 / alpha_t.sqrt()) * (x - (1 - alpha_t) /
-                                        (1 - alpha_t_bar).sqrt() * eta_theta)
-
-            if i < len(step_indices) - 1:  # Not the last step
-                z = torch.randn(n_samples, c, h, w).to(device)
-                beta_t = ddpm.betas[t]
-                sigma_t = beta_t.sqrt()
-                x = x + sigma_t * z
-
-        x = torch.clamp(x, -1, 1)
-
-    return (x + 1) * 0.5
 
 
 def show_forward(ddpm, loader, device):
@@ -142,7 +107,6 @@ def show_images(images, title=""):
     rows = int(len(images) ** (1 / 2))
     cols = round(len(images) / rows)
 
-    # Populating figure with sub-plots
     idx = 0
     for r in range(rows):
         for c in range(cols):
@@ -152,8 +116,6 @@ def show_images(images, title=""):
                 plt.imshow(np.transpose(images[idx], (1, 2, 0)))
                 idx += 1
     fig.suptitle(title, fontsize=30)
-
-    # Showing the figure
     plt.show()
 
 
@@ -167,7 +129,7 @@ def generate_new_images(ddpm, n_samples=16, option=1, device=None, c=3, h=28, w=
         x = torch.randn(n_samples, c, h, w).to(device)
 
         for idx, t in enumerate(list(range(ddpm.n_steps))[::-1]):
-            # FIX: Create 1D time tensor, not 2D
+
             time_tensor = torch.ones(n_samples).to(
                 device).long() * t  # Shape: (n_samples,)
             eta_theta = ddpm.backward(x, time_tensor)
@@ -200,22 +162,9 @@ def generate_new_images(ddpm, n_samples=16, option=1, device=None, c=3, h=28, w=
     return (x + 1) * 0.5
 
 
-def sinusoidal_embedding(n, d):
-    # Returns the standard positional embedding
-    embedding = torch.zeros(n, d)
-    wk = torch.tensor([1 / 10_000 ** (2 * j / d) for j in range(d)])
-    wk = wk.reshape((1, d))
-    t = torch.arange(n).reshape((n, 1))
-    embedding[:, ::2] = torch.sin(t * wk[:, ::2])
-    embedding[:, 1::2] = torch.cos(t * wk[:, ::2])
-
-    return embedding
-
-
-
-class FixedUNet(nn.Module):
+class UNet(nn.Module):
     def __init__(self, n_steps=1000, time_emb_dim=100, in_channels=3):
-        super(FixedUNet, self).__init__()
+        super(UNet, self).__init__()
         self.n_steps = n_steps
         self.time_emb_dim = time_emb_dim
         self.in_channels = in_channels
@@ -243,8 +192,7 @@ class FixedUNet(nn.Module):
             nn.ReLU()
         )
 
-        # Bottleneck
-        self.bottleneck = nn.Sequential(
+        self.down3 = nn.Sequential(
             nn.MaxPool2d(2),
             nn.Conv2d(128, 256, 3, padding=1),
             nn.ReLU(),
@@ -252,24 +200,41 @@ class FixedUNet(nn.Module):
             nn.ReLU()
         )
 
+        # Bottleneck
+        self.bottleneck = nn.Sequential(
+            nn.MaxPool2d(2),
+            nn.Conv2d(256, 512, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(512, 512, 3, padding=1),
+            nn.ReLU()
+        )
+
         # Decoder
-        self.up1 = nn.ConvTranspose2d(256, 128, 2, stride=2)
+        self.up1 = nn.ConvTranspose2d(512, 256, 2, stride=2)
         self.up_conv1 = nn.Sequential(
+            nn.Conv2d(512, 256, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(256, 256, 3, padding=1),
+            nn.ReLU()
+        )
+
+        self.up2 = nn.ConvTranspose2d(256, 128, 2, stride=2)
+        self.up_conv2 = nn.Sequential(
             nn.Conv2d(256, 128, 3, padding=1),
             nn.ReLU(),
             nn.Conv2d(128, 128, 3, padding=1),
             nn.ReLU()
         )
 
-        self.up2 = nn.ConvTranspose2d(128, 64, 2, stride=2)
-        self.up_conv2 = nn.Sequential(
+        self.up3 = nn.ConvTranspose2d(128, 64, 2, stride=2)
+        self.up_conv3 = nn.Sequential(
             nn.Conv2d(128, 64, 3, padding=1),
             nn.ReLU(),
             nn.Conv2d(64, 64, 3, padding=1),
             nn.ReLU()
         )
 
-        # Final layer 
+        # Final layer
         self.final = nn.Conv2d(64, in_channels, 1)
 
         # initialization
@@ -287,7 +252,7 @@ class FixedUNet(nn.Module):
                 nn.init.zeros_(module.bias)
 
     def forward(self, x, t):
-        # Time embedding 
+        # Time embedding
         batch_size = x.shape[0]
         t_emb = torch.zeros(batch_size, self.n_steps, device=x.device)
         t_emb.scatter_(1, t.unsqueeze(1), 1.0)
@@ -296,20 +261,36 @@ class FixedUNet(nn.Module):
         # Encoder
         d1 = self.down1(x)
         d2 = self.down2(d1)
+        d3 = self.down3(d2)
 
         # Bottleneck
-        bottleneck = self.bottleneck(d2)
+        bottleneck = self.bottleneck(d3)
 
         # Decoder with skip connections
         u1 = self.up1(bottleneck)
-        u1 = torch.cat([u1, d2], dim=1)
+
+        # Ensure spatial dimensions match before concatenation
+        if u1.shape[2:] != d3.shape[2:]:
+            u1 = F.interpolate(
+                u1, size=d3.shape[2:], mode='bilinear', align_corners=False)
+        u1 = torch.cat([u1, d3], dim=1)
         u1 = self.up_conv1(u1)
 
         u2 = self.up2(u1)
-        u2 = torch.cat([u2, d1], dim=1)
+        if u2.shape[2:] != d2.shape[2:]:
+            u2 = F.interpolate(
+                u2, size=d2.shape[2:], mode='bilinear', align_corners=False)
+        u2 = torch.cat([u2, d2], dim=1)
         u2 = self.up_conv2(u2)
 
-        # Final 
-        output = self.final(u2)
+        u3 = self.up3(u2)
+        if u3.shape[2:] != d1.shape[2:]:
+            u3 = F.interpolate(
+                u3, size=d1.shape[2:], mode='bilinear', align_corners=False)
+        u3 = torch.cat([u3, d1], dim=1)
+        u3 = self.up_conv3(u3)
+
+        # Final
+        output = self.final(u3)
 
         return output
